@@ -1,34 +1,19 @@
 // api-integrations.js
 // Enhanced AI API Integrations for Indian Legal Document Analyzer
-// Utilizing: OpenAI, Gemini, Google Translate, Google Document AI, Google Natural Language, Hugging Face
+// Now using only Gemini (Google) for all AI tasks via serverless function
 
-// AI Service Selection Strategy
-const AI_STRATEGY = {
-    PRIMARY_AI: 'auto', // auto, openai, gemini, anthropic, huggingface
-    BACKUP_AI: ['gemini', 'openai', 'anthropic', 'huggingface'],
-    USE_SPECIALIZED_MODELS: true
-};
-
-// Main API object with enhanced multi-AI capabilities
 const legalAPIs = {
-    
-    // Initialize and detect available services
     availableServices: {
-        ai: [],
+        ai: ['gemini'],
         nlp: false,
         documentAI: false,
         translation: false
     },
 
-    // Initialize available services
     async initializeServices() {
-        this.availableServices.ai = [];
-        
-        if (API_CONFIG.OPENAI.API_KEY) this.availableServices.ai.push('openai');
-        if (API_CONFIG.GEMINI.API_KEY) this.availableServices.ai.push('gemini');
-        if (API_CONFIG.ANTHROPIC.API_KEY) this.availableServices.ai.push('anthropic');
-        if (API_CONFIG.HUGGINGFACE.API_KEY) this.availableServices.ai.push('huggingface');
-        
+        // Only Gemini is available for AI
+        this.availableServices.ai = ['gemini'];
+        // Optionally check for other Google services if needed
         this.availableServices.nlp = !!API_CONFIG.GOOGLE_NATURAL_LANGUAGE.API_KEY;
         this.availableServices.documentAI = !!API_CONFIG.GOOGLE_DOCUMENT_AI.API_KEY;
         this.availableServices.translation = !!API_CONFIG.GOOGLE_TRANSLATE.API_KEY;
@@ -37,7 +22,6 @@ const legalAPIs = {
         return this.availableServices;
     },
 
-    // Document Processing Pipeline with Google Document AI
     async processDocument(file) {
         try {
             console.log('📄 Processing document with AI pipeline...');
@@ -83,314 +67,40 @@ const legalAPIs = {
         }
     },
 
-    // Enhanced Legal Q&A with Multi-AI Support
     async askLegalQuestion(question, documentContext = '') {
-        try {
-            console.log('🤖 Processing legal question with multi-AI system...');
-
-            // Choose best AI service for the task
-            const aiService = this._selectBestAI('legal_qa');
-            
-            let enhancedContext = documentContext;
-            
-            // Enhance context with NLP insights if available
-            if (this.availableServices.nlp && documentContext) {
-                const nlpAnalysis = await this._analyzeWithNaturalLanguage(documentContext.substring(0, 1000));
-                enhancedContext += `\n\nKey entities: ${nlpAnalysis.entities?.map(e => e.name).join(', ') || 'None detected'}`;
-                enhancedContext += `\nDocument sentiment: ${nlpAnalysis.sentiment?.score || 'neutral'}`;
-            }
-
-            const prompt = this._buildLegalPrompt(question, enhancedContext);
-            
-            // Try primary AI service
-            let response = await this._callAIService(aiService, prompt, 'legal_qa');
-            
-            // If primary fails, try backup services
-            if (!response && this.availableServices.ai.length > 1) {
-                for (const backupAI of AI_STRATEGY.BACKUP_AI) {
-                    if (this.availableServices.ai.includes(backupAI) && backupAI !== aiService) {
-                        try {
-                            response = await this._callAIService(backupAI, prompt, 'legal_qa');
-                            if (response) break;
-                        } catch (backupError) {
-                            console.warn(`Backup AI ${backupAI} failed:`, backupError);
-                        }
-                    }
-                }
-            }
-
-            return response || this._getFallbackLegalResponse(question);
-
-        } catch (error) {
-            console.error('Error in askLegalQuestion:', error);
-            return this._getFallbackLegalResponse(question);
-        }
+        return await this._callServerless('askLegalQuestion', { question, documentContext });
     },
 
-    // Advanced Document Summarization with Multiple AI Models
     async summarizeDocument(documentText, summaryType = 'comprehensive', summaryLength = 'medium') {
-        try {
-            console.log(`📝 Generating ${summaryType} summary (${summaryLength}) with enhanced AI...`);
-
-            // Pre-process document with NLP if available
-            let enhancedAnalysis = '';
-            if (this.availableServices.nlp) {
-                const nlpResult = await this._analyzeWithNaturalLanguage(documentText.substring(0, 5000));
-                enhancedAnalysis = this._formatNLPAnalysis(nlpResult);
-            }
-
-            // Choose best AI for summarization
-            const aiService = this._selectBestAI('summarization');
-            const prompt = this._buildSummarizationPrompt(documentText, summaryType, summaryLength, enhancedAnalysis);
-            
-            // Try specialized legal summarization model first
-            let summary;
-            if (this.availableServices.ai.includes('huggingface') && AI_STRATEGY.USE_SPECIALIZED_MODELS) {
-                try {
-                    summary = await this._summarizeWithHuggingFace(documentText, summaryType);
-                } catch (hfError) {
-                    console.warn('Hugging Face summarization failed, falling back to general AI');
-                }
-            }
-
-            // Fallback to general AI models
-            if (!summary) {
-                summary = await this._callAIService(aiService, prompt, 'summarization');
-            }
-
-            // Try backup services if needed
-            if (!summary && this.availableServices.ai.length > 1) {
-                for (const backupAI of AI_STRATEGY.BACKUP_AI) {
-                    if (this.availableServices.ai.includes(backupAI) && backupAI !== aiService) {
-                        try {
-                            summary = await this._callAIService(backupAI, prompt, 'summarization');
-                            if (summary) break;
-                        } catch (backupError) {
-                            console.warn(`Backup AI ${backupAI} failed:`, backupError);
-                        }
-                    }
-                }
-            }
-
-            return summary || this._getFallbackSummary(summaryType, summaryLength);
-
-        } catch (error) {
-            console.error('Error in summarizeDocument:', error);
-            return this._getFallbackSummary(summaryType, summaryLength);
-        }
+        return await this._callServerless('summarizeDocument', { documentText, summaryType, summaryLength });
     },
 
-    // Enhanced Translation with Context Awareness
     async translateText(text, sourceLang, targetLang) {
-        try {
-            console.log(`🌐 Translating from ${sourceLang} to ${targetLang}...`);
-
-            if (!this.availableServices.translation) {
-                throw new Error('Google Translate API not configured');
-            }
-
-            // For legal documents, enhance translation with context
-            let contextualText = text;
-            if (this.availableServices.nlp && text.length > 100) {
-                const nlpAnalysis = await this._analyzeWithNaturalLanguage(text);
-                const entities = nlpAnalysis.entities?.filter(e => e.type === 'ORGANIZATION' || e.type === 'PERSON') || [];
-                
-                // Add context notes for better translation
-                if (entities.length > 0) {
-                    contextualText += `\n\n[Legal entities: ${entities.map(e => e.name).join(', ')}]`;
-                }
-            }
-
-            const response = await fetch(`${API_CONFIG.GOOGLE_TRANSLATE.BASE_URL}?key=${API_CONFIG.GOOGLE_TRANSLATE.API_KEY}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    q: contextualText,
-                    source: sourceLang,
-                    target: targetLang,
-                    format: 'text',
-                    model: 'nmt' // Neural Machine Translation for better legal document translation
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`Translation API error: ${response.status}`);
-            }
-
-            const data = await response.json();
-            let translation = data.data.translations[0].translatedText;
-
-            // Clean up context notes from translation
-            translation = translation.replace(/\[Legal entities:.*?\]/g, '');
-
-            return translation.trim();
-
-        } catch (error) {
-            console.error('Error in translateText:', error);
-            return this._getFallbackTranslation(text, sourceLang, targetLang);
-        }
+        return await this._callServerless('translateText', { text, sourceLang, targetLang });
     },
 
-    // Advanced Semantic Search with Multiple AI Models
     async performSemanticSearch(query, documentText) {
-        try {
-            console.log('🔍 Performing advanced semantic search...');
-
-            // Use multiple AI models for comprehensive search
-            const searchResults = [];
-
-            // NLP-enhanced search
-            if (this.availableServices.nlp) {
-                const nlpResult = await this._searchWithNaturalLanguage(query, documentText);
-                searchResults.push({
-                    source: 'Google Natural Language',
-                    results: nlpResult
-                });
-            }
-
-            // AI-powered semantic search
-            const aiService = this._selectBestAI('search');
-            const searchPrompt = this._buildSearchPrompt(query, documentText);
-            const aiSearchResult = await this._callAIService(aiService, searchPrompt, 'search');
-            
-            if (aiSearchResult) {
-                searchResults.push({
-                    source: aiService,
-                    results: aiSearchResult
-                });
-            }
-
-            // Legal entity-based search if available
-            if (this.availableServices.ai.includes('huggingface')) {
-                const entitySearch = await this._searchLegalEntities(query, documentText);
-                if (entitySearch) {
-                    searchResults.push({
-                        source: 'Legal Entity Search',
-                        results: entitySearch
-                    });
-                }
-            }
-
-            return this._combineSearchResults(searchResults, query);
-
-        } catch (error) {
-            console.error('Error in performSemanticSearch:', error);
-            return this._getFallbackSearchResults(query);
-        }
+        return await this._callServerless('performSemanticSearch', { query, documentText });
     },
 
-    // NEW: Document Comparison Feature
     async compareDocuments(doc1Text, doc2Text) {
-        try {
-            console.log('📊 Comparing documents with AI analysis...');
-
-            const aiService = this._selectBestAI('comparison');
-            const prompt = `As a legal AI expert, compare these two documents and provide:
-            1. Key differences
-            2. Similar clauses
-            3. Legal implications of differences
-            4. Recommendations
-
-            Document 1:
-            ${doc1Text.substring(0, 2000)}...
-
-            Document 2:
-            ${doc2Text.substring(0, 2000)}...
-
-            Analysis:`;
-
-            return await this._callAIService(aiService, prompt, 'comparison');
-
-        } catch (error) {
-            console.error('Error in compareDocuments:', error);
-            return 'Document comparison failed. Please configure AI services.';
-        }
+        return await this._callServerless('compareDocuments', { doc1Text, doc2Text });
     },
 
-    // NEW: Legal Risk Assessment
     async assessLegalRisk(documentText) {
-        try {
-            console.log('⚖️ Performing legal risk assessment...');
-
-            // Combine multiple AI insights
-            const assessments = [];
-
-            // Sentiment and entity analysis
-            if (this.availableServices.nlp) {
-                const nlpAnalysis = await this._analyzeWithNaturalLanguage(documentText);
-                assessments.push({
-                    source: 'Natural Language Analysis',
-                    sentiment: nlpAnalysis.sentiment,
-                    entities: nlpAnalysis.entities
-                });
-            }
-
-            // AI-powered risk analysis
-            const aiService = this._selectBestAI('risk_analysis');
-            const riskPrompt = `As a legal risk analyst specializing in Indian law, assess the legal risks in this document:
-
-            ${documentText.substring(0, 3000)}...
-
-            Provide:
-            1. Risk level (Low/Medium/High)
-            2. Specific risk factors
-            3. Legal compliance issues
-            4. Mitigation recommendations
-            5. Relevant Indian laws/acts
-
-            Assessment:`;
-
-            const aiRiskAssessment = await this._callAIService(aiService, riskPrompt, 'risk_analysis');
-            
-            return {
-                nlpAnalysis: assessments[0] || null,
-                aiAssessment: aiRiskAssessment,
-                timestamp: new Date().toISOString()
-            };
-
-        } catch (error) {
-            console.error('Error in assessLegalRisk:', error);
-            return { error: 'Risk assessment failed', details: error.message };
-        }
+        return await this._callServerless('assessLegalRisk', { documentText });
     },
 
-    // Private Methods for AI Service Integration
-
-    _selectBestAI(taskType) {
-        const preferences = {
-            'legal_qa': ['gemini', 'openai', 'anthropic', 'huggingface'],
-            'summarization': ['openai', 'gemini', 'anthropic', 'huggingface'],
-            'search': ['gemini', 'openai', 'anthropic'],
-            'comparison': ['openai', 'gemini', 'anthropic'],
-            'risk_analysis': ['gemini', 'openai', 'anthropic']
-        };
-
-        const taskPreferences = preferences[taskType] || this.availableServices.ai;
-        
-        for (const ai of taskPreferences) {
-            if (this.availableServices.ai.includes(ai)) {
-                return ai;
-            }
-        }
-
-        return this.availableServices.ai[0] || null;
-    },
-
-    async _callAIService(service, prompt, taskType) {
-        switch (service) {
-            case 'openai':
-                return await this._callOpenAI(prompt, taskType);
-            case 'gemini':
-                return await this._callGemini(prompt, taskType);
-            case 'anthropic':
-                return await this._callAnthropic(prompt);
-            case 'huggingface':
-                return await this._callHuggingFace(prompt, taskType);
-            default:
-                throw new Error(`Unknown AI service: ${service}`);
-        }
+    async _callServerless(action, params) {
+        const response = await fetch('/api/legal-ai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, ...params })
+        });
+        if (!response.ok) throw new Error('Serverless AI API error');
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Unknown AI error');
+        return data.data;
     },
 
     // Enhanced OpenAI Integration
